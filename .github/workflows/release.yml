@@ -1,0 +1,110 @@
+name: build-fpk
+
+# 上游 DBX 发新版时，在 CI 里重新打包出 fpk 并发布 Release，同时更新源清单 fnpack.json。
+# 触发方式：
+#   1) 手动：Actions → build-fpk → Run workflow（可留空版本，自动取上游最新）
+#   2) 定时：每周一 06:17 检查上游是否有新版本
+#   3) 推 tag：git push origin v0.6.19
+#
+# 为什么 CI 里能跑：打包走 release 模式 + 原生 fpkpack.py（纯 Python），
+# 不需要飞牛工具、不需要 Docker，只要 curl / tar / python3。
+
+on:
+  push:
+    tags: ['v*']
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '上游 DBX 版本（如 v0.6.19；留空=取上游最新）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # 后面要把源清单提交回 main，需要完整历史
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 解析要构建的版本
+        id: ver
+        run: |
+          set -eu
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VER="${{ github.event.inputs.version }}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VER="${GITHUB_REF_NAME}"
+          else
+            VER="$(curl -fsSL https://api.github.com/repos/t8y2/dbx/releases/latest | python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])')"
+          fi
+          case "$VER" in v*) ;; *) VER="v$VER" ;; esac
+          echo "tag=$VER" >> "$GITHUB_OUTPUT"
+          echo "ver=${VER#v}" >> "$GITHUB_OUTPUT"
+          echo "& 目标版本：$VER"
+
+      - name: 已发布过就跳过
+        id: dup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          if [ -f fnpack.json ] && python3 -c "
+          import json,sys
+          d=json.load(open('fnpack.json'))
+          sys.exit(0 if '${{ steps.ver.outputs.ver }}' in d.get('apps',{}).get('dbx',{}).get('releases',{}) else 1)"; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "源清单里已有 ${{ steps.ver.outputs.ver }}，跳过"
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 构建 fpk（官方静态产物 + 原生打包器）
+        if: steps.dup.outputs.skip == '0'
+        run: |
+          set -eu
+          bash build.sh --mode release --packer native --version "${{ steps.ver.outputs.tag }}"
+
+      - name: 发布 Release（上传 fpk）
+        if: steps.dup.outputs.skip == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          VER="${{ steps.ver.outputs.ver }}"
+          TAG="${{ steps.ver.outputs.tag }}"
+          FPK="$(ls dist/dbx_${VER}_*.fpk | head -1)"
+          gh release create "$TAG" "$FPK" \
+            --title "DBX $VER（飞牛版）" \
+            --notes "同步上游 DBX $([ -f dist/PROVENANCE-${VER}-x64.txt ] && grep -m1 '^upstream_commit' dist/PROVENANCE-${VER}-x64.txt | awk '{print $3}' || echo unknown)
+          $(basename "$FPK")：全静态 musl 二进制 + 前端，飞牛 fnOS 原生安装包（免 Docker）。
+          校验：sha256=$(sha256sum "$FPK" | cut -d' ' -f1)" \
+            || echo "Release 已存在，继续更新源清单"
+
+      - name: 更新源清单 fnpack.json
+        if: steps.dup.outputs.skip == '0'
+        run: |
+          set -eu
+          VER="${{ steps.ver.outputs.ver }}"
+          TAG="${{ steps.ver.outputs.tag }}"
+          FPK="$(ls dist/dbx_${VER}_*.fpk | head -1)"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/$(basename "$FPK")"
+          PROV="$(ls dist/PROVENANCE-${VER}-*.txt | head -1)"
+          python3 tools/gen-fnpack.py --fpk "$FPK" --provenance "$PROV" \
+            --download-url "$URL" --repo-url "https://github.com/${GITHUB_REPOSITORY}" \
+            --out fnpack.json
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add fnpack.json
+          git commit -m "chore: 源清单更新到 DBX $VER" || echo "无变化"
+          # tag 触发时是 detached HEAD，必须显式推回 main（踩过）
+          git push origin HEAD:main
