@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "source_info": {
+    "name": "DBX 飞牛源",
+    "author": "tfgzs",
+    "homepage": "https://github.com/tfgzs/FnDepot",
+    "description": "DBX 数据库管理工具的飞牛 fnOS 原生版源（跟随上游发布，静态二进制、免 Docker）。"
+  },
+  "apps": {
+    "dbx": {
+      "display_name": "DBX 数据库管理",
+      "desc": "一站式数据库管理工具：MySQL / PostgreSQL / SQLite / Redis / MongoDB / ClickHouse / SQL Server / Oracle / DuckDB / Elasticsearch 等 90+ 种数据库，内建 SQL 编辑器、数据网格、表结构对比与 AI 助手。飞牛原生版，无需 Docker。",
+      "platform": [
+        "x86"
+      ],
+      "categories": [
+        "开发工具"
+      ],
+      "icon_url": "dbx/ICON.PNG",
+      "preview_urls": [],
+      "readme_url": "dbx/README.md",
+      "bug_report_url": "https://github.com/tfgzs/FnDepot/issues",
+      "maintainer": "DBX",
+      "maintainer_url": "https://github.com/t8y2/dbx",
+      "distributor": "tfgzs",
+      "distributor_url": "https://github.com/tfgzs/FnDepot",
+      "run_as": "package",
+      "install_type": "",
+      "is_docker": false,
+      "service_port": "4224",
+      "releases": {}
+    }
+  }
+}

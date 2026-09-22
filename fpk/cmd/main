@@ -1,0 +1,162 @@
+#!/bin/bash
+# DBX 飞牛版的运行控制脚本（fnOS 应用框架调用：cmd/main start|stop|status）
+#
+# 设计要点（可移植性 / 规范）：
+#   * 不硬编码任何路径：应用目录用 TRIM_APPDEST、数据目录用 TRIM_PKGVAR，装到哪个卷都行；
+#   * 不硬编码端口：端口来自安装/配置向导的 wizard_port，缺省 4224（上游默认端口）；
+#   * 不以 root 运行：config/privilege 声明 run-as=package，本脚本与服务进程都是应用专用用户；
+#   * 退出码遵循框架约定：start/stop 成功 0、失败 1；status 运行中 0、未运行 3。
+
+set -u
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/dbx/target}"
+VAR_DIR="${TRIM_PKGVAR:-/var/apps/dbx/var}"
+BIN="${APP_DIR}/bin/dbx-web-bin"
+STATIC_DIR="${APP_DIR}/dist"
+DATA_DIR="${VAR_DIR}/data"
+
+LOG_FILE="${VAR_DIR}/info.log"
+PID_FILE="${VAR_DIR}/app.pid"
+
+# 向导字段（安装时收集，配置变更后重新提供给脚本）；端口必须在 1-65535 之间
+PORT="${wizard_port:-4224}"
+case "$PORT" in
+    ''|*[!0-9]*) PORT=4224 ;;
+esac
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    PORT=4224
+fi
+
+export DBX_PORT="$PORT"
+export DBX_STATIC_DIR="$STATIC_DIR"
+export DBX_DATA_DIR="$DATA_DIR"
+export HOME="${TRIM_PKGHOME:-$VAR_DIR}"
+
+log_msg() {
+    printf '%s - %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+pid_of() {
+    [ -r "$PID_FILE" ] || return 1
+    head -n 1 "$PID_FILE" 2>/dev/null | tr -d '[:space:]'
+}
+
+check_pid() {
+    local pid="$1"
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2>/dev/null
+}
+
+is_running() {
+    local pid
+    pid="$(pid_of)" || return 1
+    check_pid "$pid" || { rm -f "$PID_FILE" 2>/dev/null; return 1; }
+    return 0
+}
+
+port_in_use() {
+    # 判断端口是否已被监听（避免启动失败时只留一行 bind 错误）
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${PORT}$"
+        return $?
+    fi
+    return 1
+}
+
+start_process() {
+    if is_running; then
+        log_msg "already running (pid=$(pid_of)), nothing to do"
+        return 0
+    fi
+
+    if [ ! -x "$BIN" ]; then
+        printf 'DBX 程序文件缺失：%s\n' "$BIN" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+        log_msg "start failed: missing binary $BIN"
+        return 1
+    fi
+    if [ ! -f "${STATIC_DIR}/index.html" ]; then
+        printf 'DBX 前端文件缺失：%s\n' "${STATIC_DIR}/index.html" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+        log_msg "start failed: missing frontend $STATIC_DIR/index.html"
+        return 1
+    fi
+    if port_in_use; then
+        printf '端口 %s 已被占用，请在应用设置中把「服务端口」改成其它端口后重启应用。\n' "$PORT" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+        log_msg "start failed: port $PORT already in use"
+        return 1
+    fi
+
+    mkdir -p "$DATA_DIR" 2>/dev/null || true
+    log_msg "starting dbx-web (port=$PORT, data=$DATA_DIR, static=$STATIC_DIR)"
+
+    cd "$APP_DIR" || return 1
+    nohup "$BIN" >> "$LOG_FILE" 2>&1 &
+    local pid=$!
+    printf '%s' "$pid" > "$PID_FILE"
+
+    local i=0
+    while [ "$i" -lt 20 ]; do
+        if ! check_pid "$pid"; then
+            printf 'DBX 启动失败，详情见日志：%s\n' "$LOG_FILE" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+            log_msg "process exited during startup"
+            rm -f "$PID_FILE" 2>/dev/null
+            return 1
+        fi
+        if port_in_use; then
+            log_msg "started, listening on $PORT (pid=$pid)"
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    log_msg "started (pid=$pid) but port $PORT not listening yet"
+    return 0
+}
+
+stop_process() {
+    local pid
+    pid="$(pid_of)" || { log_msg "stop: no pid file"; return 0; }
+
+    if ! check_pid "$pid"; then
+        log_msg "stop: pid $pid not running, cleaning pid file"
+        rm -f "$PID_FILE" 2>/dev/null
+        return 0
+    fi
+
+    log_msg "stopping pid $pid"
+    kill -TERM "$pid" 2>/dev/null || true
+
+    local i=0
+    while check_pid "$pid" && [ "$i" -lt 15 ]; do
+        sleep 1
+        i=$((i + 1))
+    done
+
+    if check_pid "$pid"; then
+        log_msg "pid $pid did not exit in 15s, sending KILL"
+        kill -KILL "$pid" 2>/dev/null || true
+        sleep 1
+    fi
+
+    rm -f "$PID_FILE" 2>/dev/null
+    log_msg "stopped"
+    return 0
+}
+
+case "${1:-}" in
+    start)
+        start_process
+        ;;
+    stop)
+        stop_process
+        ;;
+    status)
+        if is_running; then
+            exit 0
+        fi
+        exit 3
+        ;;
+    *)
+        exit 1
+        ;;
+esac

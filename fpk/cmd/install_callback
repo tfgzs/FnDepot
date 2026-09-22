@@ -1,0 +1,11 @@
+#!/bin/bash
+# 安装后回调：数据目录由框架（TRIM_PKGVAR）创建；这里只做一次可用性确认并记录日志。
+set -u
+
+LOG_FILE="${TRIM_PKGVAR:-/tmp}/info.log"
+{
+    printf '%s - installed dbx %s (app={%s}, data=%s)\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "${TRIM_APPVER:-unknown}" "${TRIM_APPNAME:-dbx}" "${TRIM_PKGVAR:-unknown}"
+} >> "$LOG_FILE" 2>/dev/null || true
+
+exit 0

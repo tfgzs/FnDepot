@@ -1,0 +1,19 @@
+# 构建产物与工作区（不要提交）
+build/
+dist/*.fpk
+dist/*.txt
+_stage/
+*.fpk
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器 / 系统
+.DS_Store
+*.swp
+
+# 本机专用（含本机账号/路径，不发布）
+local.cfg
+sync.sh
+docs/local-runbook.md

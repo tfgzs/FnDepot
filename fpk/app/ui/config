@@ -1,0 +1,19 @@
+{
+    ".url": {
+        "dbx.Application": {
+            "title": "DBX 数据库管理",
+            "desc": "打开 DBX 数据库管理（支持 90+ 种数据库）",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "${wizard_port}",
+            "url": "/",
+            "allUsers": true,
+            "noDisplay": false,
+            "fileTypes": [],
+            "control": {
+                "accessPerm": "editable"
+            }
+        }
+    }
+}

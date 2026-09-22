@@ -1,0 +1,18 @@
+NOTICE / 第三方归属
+
+本仓库只包含「把上游 DBX 打包成飞牛 fnOS 安装包（fpk）」的脚本与文档；分发的应用本体来自上游：
+
+  DBX - 一站式数据库管理工具
+  上游仓库：https://github.com/t8y2/dbx
+  许可：Apache License 2.0
+  说明：本仓库默认使用上游官方发布的「全静态 musl」Web 产物
+        （DBX_<版本>_<架构>-browser-static.tar.gz，附官方 .sha256），
+        校验通过后原样装入 fpk；也可以用 --mode source 从上游源码自行编译。
+
+商标与名称：DBX 的名称、图标版权归上游项目所有，本项目仅为「飞牛 fnOS 平台打包/分发」，
+不宣称与上游存在官方隶属关系。上游如需下架本源的包，请在 Issues 里提出。
+
+其它组件：
+  * 飞牛 fnOS 的应用框架（manifest / cmd / wizard / ui 约定）由飞牛官方文档定义。
+  * fnpack 是飞牛官方打包工具（可选依赖）；本仓库自带纯 Python 实现 lib/fpkpack.py，
+    在没有 fnpack 的机器/CI 上也能出包。

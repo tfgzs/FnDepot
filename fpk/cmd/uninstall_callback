@@ -1,0 +1,17 @@
+#!/bin/bash
+# 卸载回调：按用户向导选择决定是否删除本应用数据目录。
+# run-as=package 时本脚本以应用专用用户执行，TRIM_PKGVAR 属于该用户，可以自行清理。
+set -u
+
+DATA_ACTION="${wizard_delete_data:-false}"
+
+if [ "$DATA_ACTION" = "true" ]; then
+    if [ -n "${TRIM_PKGVAR:-}" ] && [ -d "${TRIM_PKGVAR}" ]; then
+        rm -rf "${TRIM_PKGVAR:?}" 2>/dev/null || true
+        echo "已删除应用数据目录：${TRIM_PKGVAR}"
+    fi
+else
+    echo "保留应用数据目录：${TRIM_PKGVAR:-<unknown>}"
+fi
+
+exit 0
